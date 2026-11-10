@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Build a Neutral-Atom Quantum Computer</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--tx:#161a2b;--mu:#5b6280;--ac:#5b3df5;--cv:#0d1226;--bd:#dde0ee;--ok:#12a36b;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b0e1c;--card:#151a30;--tx:#e9ebf8;--mu:#9aa2c4;--ac:#8d77ff;--bd:#2a3154}}
+:root[data-theme="dark"]{--bg:#0b0e1c;--card:#151a30;--tx:#e9ebf8;--mu:#9aa2c4;--ac:#8d77ff;--bd:#2a3154}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:1.3rem;margin:0 0 4px}h2{font-size:1.1rem;margin:0 0 6px}
+.sub{color:var(--mu);margin:0 0 12px;font-size:.9rem}
+#steps{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto}
+#steps span{flex:1;min-width:64px;text-align:center;font-size:.75rem;padding:5px 4px;border-radius:8px;background:var(--card);border:1px solid var(--bd);color:var(--mu)}
+#steps .on{border-color:var(--ac);color:var(--ac);font-weight:600}#steps .dn{background:var(--ok);color:#fff;border-color:var(--ok)}
+canvas{width:100%;height:auto;background:var(--cv);border-radius:12px;display:block;touch-action:manipulation}
+.panel{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-top:10px}
+.task{border-left:3px solid var(--ac);padding-left:10px;margin:8px 0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--ac);background:transparent;color:var(--ac);cursor:pointer}
+button.p{background:var(--ac);color:#fff}button:disabled{opacity:.4;cursor:not-allowed}
+#msg{min-height:1.5em;color:var(--mu);font-size:.9rem;margin-top:6px}
+input[type=range]{flex:1;min-width:140px}
+</style></head><body><main>
+<h1>⚛️ Build a Neutral-Atom Quantum Computer</h1>
+<p class="sub">Follow the recipe used by companies like Pasqal: trap single atoms with light, then compute with them.</p>
+<div id="steps"></div>
+<canvas id="c" width="640" height="340"></canvas>
+<div class="panel"><h2 id="ti"></h2><div id="ex"></div><div class="task" id="tk"></div>
+<div class="row" id="ct"></div><div id="msg"></div>
+<div class="row"><button class="p" id="nx" disabled>Next level →</button></div></div>
+</main>
+<script>
+const cv=document.getElementById('c'),x=cv.getContext('2d'),W=640,H=340,$=id=>document.getElementById(id);
+const cs=getComputedStyle(document.documentElement);
+const TITLES=["Vacuum","Cooling","Tweezers","Sorting","Rydberg","Readout"];
+const INFO=[
+["1 · Make an ultra-high vacuum","Air molecules would knock atoms out of their traps. The rubidium atoms (green) live in a steel chamber pumped down to about 10⁻¹⁰ mbar, emptier than most of outer space nearby.","Pump the chamber until the pressure is 10⁻¹⁰ mbar or lower."],
+["2 · Laser cooling","Atoms in a gas fly around at hundreds of m/s. Six laser beams tuned slightly <b>below</b> the atom’s resonance (red-detuned) push back on atoms moving toward them (the Doppler effect), cooling them to microkelvins.","Slide the laser detuning below zero and find the sweet spot (around −1) to get the temperature under 50 µK."],
+["3 · Optical tweezers","A spatial light modulator (SLM) shapes one laser into a hologram of many tiny focused spots. Each spot is an optical tweezer that can hold one atom, and each atom is a qubit.","Create at least 16 tweezers (click sites or use the hologram), then load atoms. Each tweezer catches an atom only about 50% of the time."],
+["4 · Rearrange the atoms","Random loading leaves gaps. A camera spots which traps are filled, then movable tweezers shuffle atoms into a perfect, defect-free pattern. This is what lets you pick any geometry you want.","Click an atom, then click an empty tweezer to move it. Fill all 8 highlighted target sites."],
+["5 · Rydberg blockade","A laser excites an atom into a huge, puffed-up Rydberg state. Two atoms closer than the blockade radius cannot both be excited, so they interact. That is how the atoms talk to each other, and how Pasqal encodes graph problems.","Excite as many atoms as you can without two of them being within the blockade radius. Try radius 1 or more. Match the optimum!"],
+["6 · Read the result","A camera images the atoms. Atoms in the ground state scatter light and glow. Excited atoms are knocked out of the trap light and look dark. Dark = 1, bright = 0. Repeat the experiment many times to get statistics.","Press ‘Take image’ to read out your 8-qubit register."]
+];
+let stage=0,done=[0,0,0,0,0,0],pe=-3,gas=[],mot=[],det=1.5,cool=0,tw=[],at=[],sel=-1,ex=[],R=1,imaged=false,flash=0;
+const SX=c=>145+70*c,SY=r=>65+70*r,sx=i=>SX(i%6),sy=i=>SY(Math.floor(i/6));
+const TARGET=[7,8,9,10,13,14,15,16]; // rows1-2, cols1-4
+const RY=TARGET;
+function msg(t){$('msg').textContent=t}
+function setDone(){done[stage]=1;$('nx').disabled=false;render()}
+function render(){$('steps').innerHTML=TITLES.map((t,i)=>`<span class="${i==stage?'on':''} ${done[i]&&i!=stage?'dn':''}">${i+1}. ${t}</span>`).join('')}
+function go(s){stage=s;sel=-1;msg('');$('nx').disabled=!done[s];
+ $('nx').textContent=s==5?'Restart ↺':'Next level →';
+ const [t,e,k]=INFO[s];$('ti').textContent=t;$('ex').innerHTML=e;$('tk').innerHTML='<b>Your task:</b> '+k;
+ const c=$('ct');
+ if(s==0){c.innerHTML='<button class="p" id="b1">Pump ⬇</button><span id="pr"></span>';$('b1').onclick=()=>{if(pe>-11)pe--;if(pe<=-10&&!done[0]){msg('Ultra-high vacuum reached! ✅');setDone()}}; 
+  gas=[];for(let i=0;i<200;i++)gas.push({x:60+Math.random()*520,y:50+Math.random()*240,vx:Math.random()*2-1,vy:Math.random()*2-1})}
+ if(s==1){c.innerHTML='<label>Detuning: <b id="dv"></b></label><input type="range" id="sl" min="-3" max="3" step="0.1" value="'+det+'">';
+  $('sl').oninput=e=>{det=+e.target.value};
+  mot=[];for(let i=0;i<40;i++){const a=Math.random()*6.28;mot.push({x:320+Math.random()*200-100,y:170+Math.random()*120-60,vx:Math.cos(a)*2,vy:Math.sin(a)*2})};cool=0}
+ if(s==2){c.innerHTML='<button id="b1">Fill with hologram</button><button id="b2">Clear</button><button class="p" id="b3">Load atoms</button>';
+  $('b1').onclick=()=>{tw=Array(24).fill(1);at=Array(24).fill(0)};$('b2').onclick=()=>{tw=Array(24).fill(0);at=Array(24).fill(0)};
+  $('b3').onclick=()=>{if(tw.filter(Boolean).length<16){msg('You need at least 16 tweezers first.');return}
+   at=tw.map(v=>v&&Math.random()<.5?1:0);const n=at.filter(Boolean).length;msg(n+' atoms caught.'+(n<8?' Fewer than 8, load again!':' Enough atoms! ✅'));if(n>=8)setDone()};
+  if(!tw.length){tw=Array(24).fill(0);at=Array(24).fill(0)}}
+ if(s==3){c.innerHTML='<button id="b1">Reload atoms (re-roll)</button>';
+  $('b1').onclick=()=>{at=tw.map(v=>v&&Math.random()<.5?1:0);sel=-1;chk()};
+  if(at.filter(Boolean).length<8){at=Array(24).fill(0);for(let i=0;i<24;i++)tw[i]=1,at[i]=Math.random()<.5?1:0}chk()}
+ if(s==4){c.innerHTML='<label>Blockade radius: <b id="rv"></b></label><input type="range" id="sl" min="0.5" max="3" step="0.5" value="'+R+'"><button id="b1">Reset</button>';
+  $('sl').oninput=e=>{R=+e.target.value;ex=Array(8).fill(0);upd()};$('b1').onclick=()=>{ex=Array(8).fill(0);upd()};ex=Array(8).fill(0);upd()}
+ if(s==5){c.innerHTML='<button class="p" id="b1">📷 Take image</button>';imaged=false;$('b1').onclick=()=>{imaged=true;msg('Bits (dark=1): '+ex.map(v=>v?1:0).join('')+'. You built and read an 8-atom quantum register! 🎉 Real machines like Pasqal’s hold hundreds to a thousand or more atoms.');setDone()}}
+ render()}
+function dist(a,b){return Math.hypot(sx(a)-sx(b),sy(a)-sy(b))/70}
+function opt(){let best=0;for(let m=0;m<256;m++){let ok=1,n=0;for(let i=0;i<8&&ok;i++)if(m>>i&1){n++;for(let j=i+1;j<8;j++)if(m>>j&1&&dist(RY[i],RY[j])<=R+.01){ok=0;break}}if(ok&&n>best)best=n}return best}
+function upd(){$('rv').textContent=R;const n=ex.filter(Boolean).length,o=opt();msg(`Excited: ${n} / optimum for this radius: ${o}`);
+ if(n==o&&R>=1&&!done[4]){msg(`Optimal! ${n} atoms excited with radius ${R}. ✅`);setDone()}}
+function chk(){const f=TARGET.filter(i=>at[i]).length;msg(f+' / 8 target sites filled');if(f==8&&!done[3]){msg('Defect-free array! ✅');setDone()}}
+cv.addEventListener('click',e=>{const r=cv.getBoundingClientRect(),px=(e.clientX-r.left)*W/r.width,py=(e.clientY-r.top)*H/r.height;
+ let hit=-1;for(let i=0;i<24;i++)if(Math.hypot(px-sx(i),py-sy(i))<26)hit=i;
+ if(stage==2&&hit>=0&&!at.some(Boolean)){tw[hit]=tw[hit]?0:1}
+ else if(stage==2&&hit>=0){tw[hit]=tw[hit]?0:1;at[hit]=0}
+ if(stage==3&&hit>=0){if(at[hit]){sel=hit}else if(sel>=0&&tw[hit]){at[hit]=1;at[sel]=0;sel=-1;chk()}}
+ if(stage==4){let k=-1;RY.forEach((s,i)=>{if(Math.hypot(px-sx(s),py-sy(s))<26)k=i});
+  if(k>=0){if(ex[k])ex[k]=0;else if(ex.some((v,j)=>v&&dist(RY[j],RY[k])<=R+.01)){msg('Blocked! Too close to an excited atom.');flash=20;return}else ex[k]=1;upd()}}});
+$('nx').onclick=()=>{if(stage==5){done=[0,0,0,0,0,0];pe=-3;tw=[];at=[];go(0)}else go(stage+1)};
+function dot(px,py,r,f,s){x.beginPath();x.arc(px,py,r,0,6.283);if(f){x.fillStyle=f;x.fill()}if(s){x.strokeStyle=s;x.lineWidth=2;x.stroke()}}
+function frame(){x.clearRect(0,0,W,H);x.font='13px system-ui';x.textAlign='center';
+ if(stage==0){x.strokeStyle='#6f7aa8';x.lineWidth=4;x.strokeRect(40,30,560,280);
+  const f=Math.max(0,Math.min(1,(pe+11)/8)),n=Math.floor(200*f*f);
+  for(let i=0;i<n;i++){const g=gas[i];g.x+=g.vx;g.y+=g.vy;if(g.x<44||g.x>596)g.vx*=-1;if(g.y<34||g.y>306)g.vy*=-1;dot(g.x,g.y,2.5,'#8892c0')}
+  for(let i=0;i<10;i++)dot(120+i*43,170+Math.sin(Date.now()/500+i)*30,4,'#35e08a');
+  x.fillStyle='#fff';x.fillText('Pressure ≈ 10^'+pe+' mbar     ● air/gas   ● rubidium atoms',320,328);}
+ if(stage==1){const d=det,eff=d<0?Math.exp(-((d+1)**2)/1.2):0;$('dv').textContent=d.toFixed(1);
+  if(d<0){x.strokeStyle='rgba(255,90,90,'+(.15+eff*.6)+')';x.lineWidth=3;[[0,170],[640,170],[320,0],[320,340],[120,0],[520,340]].forEach(p=>{x.beginPath();x.moveTo(p[0],p[1]);x.lineTo(320,170);x.stroke()})}
+  let s=0;mot.forEach(a=>{a.vx*=1-.04*eff;a.vy*=1-.04*eff;if(d>=0){a.vx*=1+.002*d;a.vy*=1+.002*d}
+   a.vx+=(Math.random()-.5)*.06-(a.x-320)*.0005;a.vy+=(Math.random()-.5)*.06-(a.y-170)*.0005;a.x+=a.vx;a.y+=a.vy;
+   if(a.x<5||a.x>635)a.vx*=-1;if(a.y<5||a.y>335)a.vy*=-1;s+=a.vx*a.vx+a.vy*a.vy;dot(a.x,a.y,4,'#35e08a')});
+  const T=s/mot.length*1000;x.fillStyle='#fff';x.fillText('Temperature ≈ '+Math.round(T)+' µK   (goal < 50 µK)',320,330);
+  if(T<50){cool++;if(cool>90&&!done[1]){msg('Atoms are ultracold! ✅');setDone()}}else cool=0}
+ if(stage>=2&&stage<=3){
+  if(stage==3)TARGET.forEach(i=>{x.fillStyle='rgba(91,61,245,.25)';x.fillRect(sx(i)-30,sy(i)-30,60,60)});
+  for(let i=0;i<24;i++){if(tw[i]){dot(sx(i),sy(i),20,null,'#ff6b6b');dot(sx(i),sy(i),3,'#ff6b6b33')}else dot(sx(i),sy(i),4,'#3a4270');
+   if(at[i])dot(sx(i),sy(i),10,'#35e08a',i==sel?'#fff':null)}
+  x.fillStyle='#fff';x.fillText(stage==2?'Red rings = tweezers (SLM hologram). Click sites to toggle.':'Purple = target. Click an atom, then an empty tweezer.',320,328)}
+ if(stage==4||stage==5){
+  RY.forEach((s,i)=>{if(stage==4&&ex[i])dot(sx(s),sy(s),R*70,'rgba(255,90,90,.12)','rgba(255,90,90,.5)')});
+  RY.forEach((s,i)=>{const e=ex[i];
+   if(stage==4)dot(sx(s),sy(s),e?17:10,e?'#ff5a5a':'#35e08a');
+   else{if(imaged){e?dot(sx(s),sy(s),10,'#111','#444'):dot(sx(s),sy(s),22,'rgba(53,224,138,.25)'),!e&&dot(sx(s),sy(s),10,'#7dffb8')}else dot(sx(s),sy(s),10,'#35e08a')}});
+  x.fillStyle='#fff';x.fillText(stage==4?'Click atoms to excite them (red). Circle = blockade radius.':imaged?'Camera image: bright = ground state (0), dark = Rydberg (1)':'8 trapped atoms in a defect-free array',320,328)}
+ requestAnimationFrame(frame)}
+go(0);frame();
+</script></body></html>
